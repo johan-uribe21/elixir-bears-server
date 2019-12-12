@@ -9,7 +9,6 @@ defmodule Servy.Handler do
   alias Servy.Conv
   alias Servy.BearController
   alias Servy.VideoCam
-  alias Servy.Fetcher
   @pages_path Path.expand("../../pages", __DIR__)
 
   @doc """
@@ -27,18 +26,29 @@ defmodule Servy.Handler do
     |> format_response
   end
 
+  def route(%Conv{method: "GET", path: "/404s"} = conv) do
+    counts = Servy.FourOhFourCounter.get_counts()
+
+    %{conv | status: 200, resp_body: inspect(counts)}
+  end
+
+  def route(%Conv{method: "POST", path: "/pledges"} = conv) do
+    Servy.PledgeController.create(conv, conv.params)
+  end
+
+  def route(%Conv{method: "GET", path: "/pledges"} = conv) do
+    Servy.PledgeController.index(conv)
+  end
+
   def route(%Conv{method: "GET", path: "/sensors"} = conv) do
-    pid1 = Fetcher.async(fn -> VideoCam.get_snapshot("cam-1") end)
-    pid2 = Fetcher.async(fn -> VideoCam.get_snapshot("cam-2") end)
-    pid3 = Fetcher.async(fn -> VideoCam.get_snapshot("cam-3") end)
-    pid4 = Fetcher.async(fn -> Servy.Tracker.get_location("bigfoot") end)
+    task = Task.async(fn -> Servy.Tracker.get_location("bigfoot") end)
 
-    snapshot1 = Fetcher.get_result(pid1)
-    snapshot2 = Fetcher.get_result(pid2)
-    snapshot3 = Fetcher.get_result(pid3)
-    where_is_bigfoot = Fetcher.get_result(pid4)
+    snapshots =
+      ["cam-1", "cam-2", "cam-3"]
+      |> Enum.map(&Task.async(fn -> VideoCam.get_snapshot(&1) end))
+      |> Enum.map(&Task.await/1)
 
-    snapshots = [snapshot1, snapshot2, snapshot3]
+    where_is_bigfoot = Task.await(task)
 
     %{conv | status: 200, resp_body: inspect({snapshots, where_is_bigfoot})}
   end
